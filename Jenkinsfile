@@ -66,6 +66,22 @@ pipeline {
 			}
 		}
 
+		stage('Unit Tests (crypto core)') {
+			// The P4c sybil-resistance model (src/reputation.js + nullifier
+			// registry). node:test, no jest. Site-only changes still run it
+			// cheaply (~6s incl. install).
+			steps {
+				sh '''
+					if [ -f package.json ] && command -v node >/dev/null 2>&1; then
+						npm install --no-audit --fund=false
+						npm test
+					else
+						echo "no package.json or node — skipping unit tests"
+					fi
+				'''
+			}
+		}
+
 		// ── PRODUCTION: main only ─────────────────────────────
 		stage('Deploy → Production') {
 			when { branch 'main' }

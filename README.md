@@ -84,26 +84,73 @@ copy-pasting amounts, no leaving the app. It sits alongside the Zcash
 amount-privacy advisor (blend-in amounts + split planner) and the Monero / Dash
 privacy tools.
 
-**Next:** an anonymous zk reputation layer (the Poseidon
-[`circuits/reputation.circom`](circuits/reputation.circom)) so one actor can't
-quietly take most seats on a bus and shrink everyone's anonymity set. The
-`src/client` helpers (`proof.js`, `verify.js`) are the in-progress prover/verifier
-for that circuit.
+**Next:** wiring the anonymous sybil-resistance layer (below) into the live
+coordinator so seats are gated by zk membership proofs.
 
 ## This repo
 
 ```
-site/                  standalone web app (static; served at zecbus.com)
-  index.html
-  styles.css
-  app.js               calls the gateway's /v1/zec/bus surface directly
-circuits/reputation.circom   zk sybil-resistance circuit (in progress)
-src/client/            proof.js / verify.js — reputation prover/verifier (in progress)
+site/                       standalone web app (static; served at zecbus.com)
+  index.html / styles.css / app.js   calls the gateway's /v1/zec/bus surface directly
+src/reputation.js           sybil-resistance crypto core (Poseidon identity,
+                            per-bus nullifier, Poseidon Merkle tree + witness)
+src/nullifier-registry.js   coordinator-side "one seat per identity per bus" enforcement
+src/client/proof.js         groth16 membership-proof generator (snarkjs)
+src/client/verify.js        groth16 verifier + registry verifier factory
+circuits/reputation.circom  the zk circuit (mirrors src/reputation.js 1:1)
+circuits/build.sh           compile + Groth16 setup (needs circom; trusted ceremony for prod)
+test/reputation.test.js     pure-model + registry tests (npm test → node --test)
 ```
 
 The site is plain static HTML/CSS/JS — no build step. Open `site/index.html`
 locally, or serve the `site/` folder with any static host; it talks to the live
 gateway out of the box.
+
+## Sybil resistance (P4c, in progress)
+
+The honest limitation above — *a single actor could take several seats* — is what
+this layer fixes, **without** deanonymising anyone or holding any keys. It's a
+[Semaphore](https://semaphore.pse.dev/)-style scheme:
+
+1. **Identity.** A rider has a secret `idSecret` and publishes
+   `idCommitment = Poseidon(idSecret, idSalt)`. Commitments live as leaves in an
+   identity **Merkle tree**.
+2. **Boarding proof.** To take a seat the rider proves in zero knowledge that
+   their committed identity is in the tree *and* reveals a per-bus
+   `nullifier = Poseidon(idSecret, busKey)` — and nothing else. `busKey` is a
+   public, deterministic label for the bus (`Poseidon`/SHA of its route, amount
+   and id).
+3. **Enforcement.** The coordinator verifies the proof and records the
+   nullifier. A second seat from the same identity on the **same** bus reuses the
+   same nullifier and is rejected → **one seat per identity per bus**. On any
+   **other** bus the nullifier is different and unlinkable, and the identity is
+   never revealed.
+
+Run the model + enforcement tests (no toolchain needed):
+
+```bash
+npm install && npm test     # node --test — pure Poseidon model + registry
+```
+
+Build the zk artefacts (needs [circom](https://docs.circom.io)):
+
+```bash
+npm run build:circuit       # circuits/build.sh → wasm + proving/verification keys
+```
+
+`src/reputation.js` is the spec **and** the witness builder; `circuits/reputation.circom`
+is the zk version of the exact same relations, so the two cannot drift.
+
+**Where the sybil *cost* lives — registration.** One-seat-per-identity only
+helps if minting identities isn't free. The Merkle leaf (`idCommitment`) is the
+anchor: registration should require proving control of a distinct, scarce
+credential — e.g. a Zcash spending/viewing key (derive `idSecret` from it), an
+optional small fee, or proof-of-work. That registration policy, the multi-party
+**trusted-setup ceremony** for the proving key (the bundled `build.sh` is a
+single-contributor *dev* setup — do not ship its zkey), and wiring proof
+verification into the live coordinator (an opt-in nullifier registry on the
+gateway, mirroring `src/nullifier-registry.js`) plus in-browser proving are the
+remaining steps.
 
 ## Honest limitations
 

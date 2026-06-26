@@ -1,41 +1,39 @@
-const { groth16 } = require('snarkjs');
-const { poseidon } = require('circomlibjs');
+// ZecBus membership-proof generator (P4c). ESM wrapper around snarkjs groth16.
+//
+// Builds the witness with the shared model (src/reputation.js) so the proof's
+// public signals — [merkleRoot, busKey, nullifier] — exactly match what the
+// coordinator dedupes on. Needs the compiled circuit artefacts (see
+// circuits/build.sh): the .wasm witness generator and the proving .zkey.
 
-async function generateProof(viewingKey, salt, txids, busAddresses, publicBusAddresses, numBuses) {
-    // Compute commitment
-    const commitment = await poseidon([BigInt(viewingKey), BigInt(salt)]);
+import { groth16 } from 'snarkjs';
+import { buildBusWitness } from '../reputation.js';
 
-    // Pad arrays if numBuses < maxBuses
-    const maxBuses = 10;
-    while (txids.length < maxBuses) txids.push(0);
-    while (busAddresses.length < maxBuses) busAddresses.push(0);
+// opts: { wasmPath, zkeyPath }
+export async function generateBusProof({ identity, tree, index, bus, busKey }, opts = {}) {
+	const { wasmPath, zkeyPath } = opts;
+	if (!wasmPath || !zkeyPath) {
+		throw new Error('generateBusProof: wasmPath and zkeyPath are required (run circuits/build.sh)');
+	}
+	const w = await buildBusWitness({ identity, tree, index, bus, busKey });
 
-    // Input for circuit
-    const input = {
-        viewing_key: BigInt(viewingKey),
-        salt: BigInt(salt),
-        txids: txids.map(BigInt),
-        bus_addresses: busAddresses.map(BigInt),
-        commitment: commitment,
-        num_buses: numBuses,
-        public_bus_addresses: publicBusAddresses.map(BigInt)
-    };
+	const input = {
+		idSecret: w.idSecret.toString(),
+		idSalt: w.idSalt.toString(),
+		pathElements: w.pathElements.map((x) => x.toString()),
+		pathIndices: w.pathIndices.map((x) => x.toString()),
+		merkleRoot: w.merkleRoot.toString(),
+		busKey: w.busKey.toString(),
+		nullifier: w.nullifier.toString(),
+	};
 
-    // Generate proof
-    const { proof, publicSignals } = await groth16.fullProve(
-        input,
-        'reputation.wasm',
-        'reputation_final.zkey'
-    );
+	const { proof, publicSignals } = await groth16.fullProve(input, wasmPath, zkeyPath);
 
-    return { proof, publicSignals };
-}
-
-async function submitProof(proof, publicSignals) {
-    // Send proof to website (e.g., via POST request or WebSocket)
-    const response = await fetch('/api/verify-proof', {
-        method: 'POST',
-        body: JSON.stringify({ proof, publicSignals })
-    });
-    return response.json(); // Returns badge status, e.g., "Veteran Rider"
+	// Bundle is exactly what nullifier-registry.claimSeat / the gateway expects.
+	return {
+		proof,
+		publicSignals,
+		merkleRoot: w.merkleRoot.toString(),
+		busKey: w.busKey.toString(),
+		nullifier: w.nullifier.toString(),
+	};
 }

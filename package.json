@@ -1,0 +1,25 @@
+{
+  "name": "zecbus",
+  "version": "2.0.0",
+  "description": "ZecBus — non-custodial Zcash mixing rendezvous. Standalone site + the anonymous sybil-resistance (Poseidon membership/nullifier) crypto core.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Rotwang9000/zecbus.git"
+  },
+  "exports": {
+    "./reputation": "./src/reputation.js",
+    "./nullifier-registry": "./src/nullifier-registry.js",
+    "./proof": "./src/client/proof.js",
+    "./verify": "./src/client/verify.js"
+  },
+  "scripts": {
+    "test": "node --test",
+    "build:circuit": "bash circuits/build.sh"
+  },
+  "dependencies": {
+    "circomlibjs": "^0.1.7",
+    "snarkjs": "^0.7.6"
+  }
+}
