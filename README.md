@@ -1,50 +1,119 @@
-# Zcash Bus Station
+# ZecBus — leave the Zcash pool together
 
-**Zcash Bus Station** is an open-source, decentralized tool for coordinating anonymous ZEC-to-RUNE swaps via Maya Protocol or THORChain. Users send Zcash (ZEC) to a shielded address with a memo specifying swap details, and the system collates these into "buses" for coordinated swaps, enhancing privacy by obscuring transaction trails. The service reads directly from the Zcash blockchain, caches bus state on IPFS, and avoids central data storage. A zk-SNARK-based reputation system rewards loyal users with privacy-preserving badges, tied to this instance for stickiness.
+**ZecBus** coordinates **non-custodial** Zcash mixing. A *bus* is a rendezvous:
+several people agree to leave the Zcash shielded pool with the **same blend-in
+amount**, on the **same route** (ZEC → BTC/ETH/RUNE/…), in the **same short
+window**. On-chain you become *N* indistinguishable look-alike swaps instead of
+one lone, oddly-sized exit that links straight back to you.
 
-## Features
-- **Privacy-Preserving Swaps**: Coordinate ZEC-to-RUNE swaps with shielded transactions and encrypted memos to obscure transaction links.
-- **Flexible Buses**: Support buses with varying minimum passenger counts (e.g., 3, 5, 10) for faster filling.
-- **Decentralized Caching**: Cache bus state on IPFS to reduce blockchain scanning, maintaining decentralization.
-- **zk-SNARK Reputation**: Prove past participation anonymously with zk-SNARKs, earning badges like "Veteran Rider."
-- **No Central Storage**: All data is read from the Zcash blockchain or IPFS, ensuring no central server.
-- **Open-Source**: Fully transparent codebase, encouraging community contributions and audits.
+Live at **[zecbus.com](https://zecbus.com)**. It's also a set of MCP tools, so an
+AI agent can ride a bus on your behalf.
 
-## How It Works
-1. **Join a Bus**: Users send ZEC (with a small fee, e.g., 0.01 ZEC) to a bus’s shielded address, including a memo like `amount:min_passengers:target_address` (e.g., `100:5:thor1...`).
-2. **Bus Formation**: The website reads memos from the blockchain, caches state on IPFS, and displays progress (e.g., "Bus #123: 3/5 passengers, 60/100 ZEC").
-3. **Swap Execution**: When a bus fills, ZEC is swapped to RUNE via Maya/THORChain and sent to target addresses. Unfilled buses refund ZEC after 48 hours.
-4. **Reputation**: Users submit zk-SNARK proofs of past bus participations to earn badges, encouraging loyalty.
+> **This is a coordination service, not a tumbler.** ZecBus holds **no funds and
+> no keys**, and stores **no destinations or txids**. It only tracks *(route,
+> blend-in amount, seat count, departure window)*. Each rider signs and
+> broadcasts their **own** swap from their **own** wallet. The real anonymity set
+> is how many *distinct* riders actually broadcast in the window — so the seat
+> count is an **upper bound**, not a promise.
 
-## Getting Started
-### Prerequisites
-- A Zcash wallet supporting shielded transactions (e.g., YWallet, Zcashd).
-- Access to a Zcash node or lightwalletd for blockchain queries.
-- (Optional) IPFS node for caching bus state.
-- Node.js and a browser for the website and CLI tools.
+## v2 vs v1 (why this changed)
 
-### Installation
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/yourusername/zcash-bus-station.git
-   cd zcash-bus-station
+The original ZecBus (see git history) was **custodial**: riders sent ZEC to a
+shared "bus" shielded address and the service swapped on their behalf. That is
+money-transmission-shaped and concentrates risk. **v2 is coordination-only** — a
+rendezvous that matches riders by amount/route/time; nobody ever hands their
+coins to ZecBus.
 
-Install dependencies:bash
+## How it works
 
-npm install
+1. **Pick a blend-in amount + exit asset.** Choose a common denomination others
+   also use (odd amounts fingerprint you) and where you're swapping ZEC to.
+2. **Reserve a seat.** You join, or start, a bus for that exact amount + route.
+   You get a **one-time seat token** — there's no account and nothing is stored
+   about you. Save the token if you want to manage the seat after a reload.
+3. **Wait for it to fill.** When enough riders board, the bus turns **ready** and
+   a short departure window opens.
+4. **Broadcast your own swap.** During the window, everyone broadcasts their own
+   ZEC → asset swap from their own wallet, to a **fresh** destination. The
+   look-alike swaps land together as one anonymity set.
 
-Configure your Zcash node or lightwalletd endpoint in config.json.
-Run the website locally or pin to IPFS:bash
+## API (free, public)
 
-npm start
-# or
-ipfs add -r dist/ && ipfs pin
+The board runs on the winbit32 gateway. All endpoints are free and CORS-enabled.
 
-UsageVisit the website (local or IPFS-hosted) to view or join buses.
-Use the memo generator to create a valid memo (e.g., 100:5:thor1...).
-Send ZEC to the bus’s shielded address with the memo.
-Submit a zk-SNARK reputation proof (optional) to display your badge.
-Monitor bus progress and await swap execution.
+| Method | Path | What |
+| ------ | ---- | ---- |
+| `GET`  | `/v1/zec/bus` | list boarding buses (`?to=BTC.BTC` to filter) |
+| `GET`  | `/v1/zec/bus/:id` | one bus (`?seatId=&ownerToken=` for your seat) |
+| `POST` | `/v1/zec/bus/join` | reserve a seat → returns a one-time `owner_token` |
+| `POST` | `/v1/zec/bus/seat/:id/board` | confirm boarded (owner token) |
+| `POST` | `/v1/zec/bus/seat/:id/leave` | withdraw your seat (owner token) |
 
-ContributingWe welcome contributions! Please see CONTRIBUTING.md for guidelines. Join our community on [Discord/Forum link] to discuss ideas, report bugs, or propose features.LicenseThis project is licensed under the MIT License - see LICENSE for details.StatusThis project is in early development. Current features include a basic website and memo parser. Upcoming features: IPFS caching, zk-SNARK reputation, and CLI tool.ContactFor questions or support, open an issue or join our [community channel].
+```bash
+# List buses
+curl https://mcp.winbit32.com/v1/zec/bus
 
+# Reserve a seat leaving the pool to BTC at a 1 ZEC blend-in amount
+curl -X POST https://mcp.winbit32.com/v1/zec/bus/join \
+  -H 'content-type: application/json' \
+  -d '{"to":"BTC.BTC","amount":1,"minPassengers":5}'
+```
+
+## MCP (for agents)
+
+Point any [Model Context Protocol](https://modelcontextprotocol.io) client at the
+winbit32 gateway:
+
+```json
+{ "mcpServers": { "winbit32": { "url": "https://mcp.winbit32.com/mcp" } } }
+```
+
+Tools: `winbit32_zec_bus_list`, `winbit32_zec_bus_join`,
+`winbit32_zec_bus_status`, `winbit32_zec_bus_board`, `winbit32_zec_bus_leave`.
+
+```
+zec_bus_join({ to: "BTC.BTC", amount: 1, minPassengers: 5 })
+```
+
+## Coming to WINBIT32
+
+ZecBus is being built into [WINBIT32](https://winbit32.com)'s Privacy Suite and
+Money Manager. There the bus is **wallet-connected**: when your bus is ready, one
+click prefills the built-in Exchange to broadcast your own ZEC exit swap — no
+copy-pasting amounts, no leaving the app. It sits alongside the Zcash
+amount-privacy advisor (blend-in amounts + split planner) and the Monero / Dash
+privacy tools.
+
+**Next:** an anonymous zk reputation layer (the Poseidon
+[`circuits/reputation.circom`](circuits/reputation.circom)) so one actor can't
+quietly take most seats on a bus and shrink everyone's anonymity set. The
+`src/client` helpers (`proof.js`, `verify.js`) are the in-progress prover/verifier
+for that circuit.
+
+## This repo
+
+```
+site/                  standalone web app (static; served at zecbus.com)
+  index.html
+  styles.css
+  app.js               calls the gateway's /v1/zec/bus surface directly
+circuits/reputation.circom   zk sybil-resistance circuit (in progress)
+src/client/            proof.js / verify.js — reputation prover/verifier (in progress)
+```
+
+The site is plain static HTML/CSS/JS — no build step. Open `site/index.html`
+locally, or serve the `site/` folder with any static host; it talks to the live
+gateway out of the box.
+
+## Honest limitations
+
+Amount blending is **one signal among many**. Timing (broadcast in the window),
+address reuse (use a fresh destination, don't recycle transparent change), and
+network metadata all still matter. Until the reputation layer lands, treat the
+seat count as an upper bound on the set — a single actor *could* take several
+seats. ZecBus reduces linkability; it does not make a transaction private on its
+own.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

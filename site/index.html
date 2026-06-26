@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>ZecBus — leave the Zcash pool together</title>
+	<meta name="description" content="ZecBus is a non-custodial rendezvous: many people leave the Zcash shielded pool with the same blend-in amount, route and short window, so your exit swap blends into a crowd. No funds, no keys, no custody." />
+	<meta name="theme-color" content="#f4b728" />
+	<meta property="og:title" content="ZecBus — leave the Zcash pool together" />
+	<meta property="og:description" content="Non-custodial mixing rendezvous for Zcash. Ride out with others at the same blend-in amount, route and window. You broadcast your own swap; ZecBus never touches your coins or keys." />
+	<meta property="og:type" content="website" />
+	<link rel="icon" href="favicon.svg" type="image/svg+xml" />
+	<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+	<header class="site-header">
+		<a class="brand" href="/">
+			<span class="brand__mark" aria-hidden="true">🚌</span>
+			<span class="brand__name">Zec<span class="brand__accent">Bus</span></span>
+		</a>
+		<nav class="site-nav">
+			<a href="#how">How it works</a>
+			<a href="#board">Buses</a>
+			<a href="#mcp">For agents</a>
+			<a href="https://github.com/Rotwang9000/zecbus" rel="noopener">Source</a>
+		</nav>
+	</header>
+
+	<main>
+		<section class="hero">
+			<p class="hero__eyebrow">Non-custodial · open source · no sign-up</p>
+			<h1>Leave the Zcash pool <span class="accent">together</span>.</h1>
+			<p class="hero__lede">
+				When you deshield ZEC alone, the transparent side shows a lone, oddly-sized exit — easy to
+				link back to you. A <strong>bus</strong> is a rendezvous: several people agree to leave the
+				shielded pool with the <strong>same blend-in amount</strong>, on the <strong>same route</strong>,
+				in the <strong>same short window</strong>. On-chain you become N look-alike swaps instead of one.
+			</p>
+			<div class="hero__cta">
+				<a class="btn btn--primary" href="#board">See boarding buses</a>
+				<a class="btn" href="#how">How it works</a>
+			</div>
+			<p class="hero__trust">
+				ZecBus never holds your funds or keys and never stores your destination. It only matches
+				<em>route, amount and timing</em> — <strong>you</strong> sign and broadcast your own swap.
+			</p>
+		</section>
+
+		<section id="how" class="how">
+			<h2>How it works</h2>
+			<ol class="steps">
+				<li>
+					<span class="steps__n">1</span>
+					<h3>Pick a blend-in amount</h3>
+					<p>Choose a common denomination others also use, and the asset you want to exit to (BTC, ETH, RUNE…). Odd amounts fingerprint you — ride a round one.</p>
+				</li>
+				<li>
+					<span class="steps__n">2</span>
+					<h3>Reserve a seat</h3>
+					<p>You join (or start) a bus for that exact amount + route. ZecBus hands you a one-time seat token. No account, no email, nothing stored about <em>you</em>.</p>
+				</li>
+				<li>
+					<span class="steps__n">3</span>
+					<h3>Wait for it to fill</h3>
+					<p>When enough riders board, the bus turns <strong>ready</strong> and a short departure window opens.</p>
+				</li>
+				<li>
+					<span class="steps__n">4</span>
+					<h3>Broadcast your own swap</h3>
+					<p>During the window, everyone broadcasts their <em>own</em> ZEC→asset swap from their <em>own</em> wallet, to a <em>fresh</em> destination. N identical swaps land together — one anonymity set.</p>
+				</li>
+			</ol>
+		</section>
+
+		<section id="board" class="board">
+			<div class="board__head">
+				<h2>Boarding now</h2>
+				<div class="board__controls">
+					<label for="filter-to">Exit to</label>
+					<select id="filter-to">
+						<option value="">Any asset</option>
+					</select>
+					<button id="refresh" class="btn btn--ghost" title="Refresh">⟳ Refresh</button>
+				</div>
+			</div>
+			<p id="board-status" class="board__status" role="status">Loading buses…</p>
+			<ul id="bus-list" class="bus-list" aria-live="polite"></ul>
+		</section>
+
+		<section id="join" class="join">
+			<div class="join__card" id="join-card">
+				<h2>Start or join a bus</h2>
+				<div class="field-row">
+					<label class="field">
+						<span>Exit to</span>
+						<select id="join-to"></select>
+					</label>
+					<label class="field">
+						<span>Min riders</span>
+						<input id="join-min" type="number" min="2" max="50" step="1" value="5" />
+					</label>
+				</div>
+				<label class="field field--amount">
+					<span>Blend-in amount (ZEC)</span>
+					<input id="join-amount" type="number" inputmode="decimal" min="0" step="0.0001" placeholder="e.g. 1" />
+				</label>
+				<p id="amount-hint" class="hint"></p>
+				<ul id="amount-chips" class="chips"></ul>
+				<label class="field">
+					<span>Handle (optional)</span>
+					<input id="join-handle" type="text" maxlength="48" placeholder="anon" autocomplete="off" />
+				</label>
+				<button id="join-go" class="btn btn--primary" disabled>Reserve a seat</button>
+				<p class="join__detail">
+					Have a seat token from before?
+					<button id="resume-toggle" class="linklike" type="button">Resume a seat</button>
+				</p>
+				<div id="resume-box" class="resume-box" hidden>
+					<input id="resume-seat" type="text" placeholder="seat id (seat_…)" autocomplete="off" />
+					<input id="resume-token" type="text" placeholder="seat token" autocomplete="off" />
+					<button id="resume-go" class="btn btn--ghost" type="button">Re-attach</button>
+				</div>
+			</div>
+
+			<div class="seat-card" id="seat-card" hidden>
+				<h2>Your seat</h2>
+				<div id="seat-summary"></div>
+				<div class="token" id="token-box" hidden>
+					<label for="token-value">Seat token — save it to manage this seat after you reload</label>
+					<div class="token__row">
+						<input id="token-value" type="text" readonly />
+						<button id="token-copy" class="btn btn--ghost" type="button">Copy</button>
+					</div>
+					<p class="token__note">Shown once. ZecBus does not store it — keep it yourself only if you want to come back.</p>
+				</div>
+				<div id="seat-actions" class="seat-actions"></div>
+			</div>
+		</section>
+
+		<section class="caveats">
+			<h2>What this does — and doesn't — do</h2>
+			<ul id="caveats-list" class="caveats__list"></ul>
+		</section>
+
+		<section id="mcp" class="mcp">
+			<h2>For agents (MCP)</h2>
+			<p>
+				ZecBus is also a set of <a href="https://modelcontextprotocol.io" rel="noopener">Model Context Protocol</a>
+				tools on the winbit32 gateway, so an AI agent can ride a bus on your behalf. Point your client at:
+			</p>
+			<pre class="code"><code id="mcp-config"></code></pre>
+			<p>Tools in this family:</p>
+			<ul class="mcp__tools">
+				<li><code>winbit32_zec_bus_list</code> — list boarding buses</li>
+				<li><code>winbit32_zec_bus_join</code> — reserve a seat (returns a one-time owner token)</li>
+				<li><code>winbit32_zec_bus_status</code> — check a bus / your seat</li>
+				<li><code>winbit32_zec_bus_board</code> — confirm boarded</li>
+				<li><code>winbit32_zec_bus_leave</code> — withdraw your seat</li>
+			</ul>
+			<p class="mcp__example">
+				Example: <code>zec_bus_join({ to: "BTC.BTC", amount: 1, minPassengers: 5 })</code> reserves a seat
+				leaving the pool to BTC at a 1 ZEC blend-in amount. The same free REST surface lives at
+				<code>GET /v1/zec/bus</code> on the gateway.
+			</p>
+		</section>
+
+		<section class="soon">
+			<h2>Coming to WINBIT32</h2>
+			<p>
+				ZecBus is being built into <a href="https://winbit32.com" rel="noopener">WINBIT32</a>'s Privacy Suite
+				and Money Manager. There, the bus is wallet-connected: when your bus is ready, one click prefills the
+				built-in Exchange to broadcast your own ZEC exit swap — no copy-pasting amounts, no leaving the app.
+				It joins the existing Zcash amount-privacy advisor (blend-in amounts + split planner) and the
+				Monero / Dash privacy tools.
+			</p>
+			<p class="soon__next">
+				<strong>Next:</strong> an anonymous zk reputation layer (the Poseidon
+				<a href="https://github.com/Rotwang9000/zecbus/blob/main/circuits/reputation.circom" rel="noopener">reputation circuit</a>
+				in this repo) so one actor can't quietly take most seats on a bus and shrink everyone's anonymity set.
+			</p>
+		</section>
+	</main>
+
+	<footer class="site-footer">
+		<p>
+			<strong>ZecBus</strong> · non-custodial mixing rendezvous ·
+			<a href="https://github.com/Rotwang9000/zecbus" rel="noopener">source &amp; docs</a> ·
+			<a href="https://winbit32.com" rel="noopener">WINBIT32</a>
+		</p>
+		<p class="site-footer__fine">
+			This is a privacy <em>aid</em>, not a guarantee. Amount blending is one signal among many (timing,
+			address reuse, network metadata). ZecBus holds no funds or keys and stores no destinations or txids.
+			Coordinated swaps are run by riders themselves.
+		</p>
+	</footer>
+
+	<script type="module" src="app.js"></script>
+</body>
+</html>
