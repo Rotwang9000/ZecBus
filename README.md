@@ -91,7 +91,8 @@ coordinator so seats are gated by zk membership proofs.
 
 ```
 site/                       standalone web app (static; served at zecbus.com)
-  index.html / styles.css / app.js   calls the gateway's /v1/zec/bus surface directly
+  index.html / styles.css / app.js   live "departures board" UI; calls the
+                            gateway's /v1/zec/bus + popular-amounts surface directly
 src/reputation.js           sybil-resistance crypto core (Poseidon identity,
                             per-bus nullifier, Poseidon Merkle tree + witness)
 src/nullifier-registry.js   coordinator-side "one seat per identity per bus" enforcement
@@ -104,7 +105,13 @@ test/reputation.test.js     pure-model + registry tests (npm test → node --tes
 
 The site is plain static HTML/CSS/JS — no build step. Open `site/index.html`
 locally, or serve the `site/` folder with any static host; it talks to the live
-gateway out of the box.
+gateway out of the box. The landing page is a live **departures board** —
+boarding buses, station stats, a scrolling ticker and a UTC clock, all
+auto-refreshing — with "how it works" as click-through. Quiet routes show as
+joinable *scheduled* departures so the board never looks dead. It credits and
+links [zecstats.com](https://zecstats.com) (the `amount-suggest` idea and the
+[Wall of Shame](https://zecstats.com/wall-of-shame), which catalogues real
+self-dox shield/deshield round-trips).
 
 ## Sybil resistance (P4c, in progress)
 

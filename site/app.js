@@ -1,7 +1,7 @@
-// ZecBus standalone site — talks directly to the winbit32 gateway's free,
-// non-custodial bus-coordination REST surface. No build step, no framework,
-// nothing persisted: the one-time seat token lives in memory (and is shown
-// with a Copy button so you can save it yourself and resume later).
+// ZecBus Station — talks directly to the winbit32 gateway's free, non-custodial
+// bus-coordination REST surface. No build step, no framework, nothing persisted:
+// the one-time seat token lives in memory (shown with a Copy button so you can
+// save it yourself and resume later).
 
 const API_BASE = 'https://mcp.winbit32.com';
 const BUS_BASE = `${API_BASE}/v1/zec/bus`;
@@ -9,17 +9,23 @@ const POPULAR_URL = `${API_BASE}/v1/zec/popular-amounts?side=deshield&limit=24`;
 const MCP_URL = `${API_BASE}/mcp`;
 const POLL_MS = 12000;
 const ZATS = 1e8;
+const MAX_BOARD_ROWS = 10;
 
-// Exit assets (CHAIN.TICKER). The point of the bus is leaving ZEC, so the
-// source is always ZEC; these are the destinations a rider can swap to.
+// Exit assets (CHAIN.TICKER). The bus is always about *leaving* ZEC, so the
+// source is fixed; these are the destinations a rider can swap out to.
 const EXIT_ASSETS = [
-	{ id: 'BTC.BTC', label: 'Bitcoin (BTC)' },
-	{ id: 'ETH.ETH', label: 'Ethereum (ETH)' },
-	{ id: 'THOR.RUNE', label: 'THORChain (RUNE)' },
-	{ id: 'LTC.LTC', label: 'Litecoin (LTC)' },
-	{ id: 'BCH.BCH', label: 'Bitcoin Cash (BCH)' },
-	{ id: 'DASH.DASH', label: 'Dash (DASH)' },
+	{ id: 'BTC.BTC', label: 'Bitcoin', short: 'BTC' },
+	{ id: 'ETH.ETH', label: 'Ethereum', short: 'ETH' },
+	{ id: 'THOR.RUNE', label: 'THORChain', short: 'RUNE' },
+	{ id: 'LTC.LTC', label: 'Litecoin', short: 'LTC' },
+	{ id: 'BCH.BCH', label: 'Bitcoin Cash', short: 'BCH' },
+	{ id: 'DASH.DASH', label: 'Dash', short: 'DASH' },
 ];
+
+// Routes/amounts surfaced as "scheduled" departures so the board always looks
+// alive. These are real, joinable routes (0 seats) — clearly marked Scheduled.
+const SUGGEST_DESTS = ['BTC.BTC', 'ETH.ETH', 'THOR.RUNE'];
+const HEADLINE_AMOUNTS = [0.1, 0.5, 1, 2, 5, 10];
 
 const STATUS_LABEL = { boarding: 'Boarding', ready: 'Ready', departed: 'Departed', expired: 'Expired', cancelled: 'Cancelled' };
 
@@ -37,6 +43,10 @@ const el = (tag, props = {}, ...kids) => {
 	for (const kid of kids) if (kid != null) node.append(kid);
 	return node;
 };
+const shortOf = (id) => EXIT_ASSETS.find((a) => a.id === id)?.short || String(id || '').split('.').pop() || id;
+const nameOf = (id) => EXIT_ASSETS.find((a) => a.id === id)?.label || shortOf(id);
+const toZats = (zec) => Math.round(Number(zec) * ZATS);
+const fmtAmount = (zec) => Number(zec).toLocaleString(undefined, { maximumFractionDigits: 8 });
 
 // ── never-throwing fetch envelope ──────────────────────────────────
 async function api(url, { method = 'GET', body = null } = {}) {
@@ -47,7 +57,7 @@ async function api(url, { method = 'GET', body = null } = {}) {
 			headers: { accept: 'application/json', ...(body ? { 'content-type': 'application/json' } : {}) },
 			...(body ? { body: JSON.stringify(body) } : {}),
 		});
-	} catch (e) {
+	} catch {
 		return { ok: false, status: null, data: null, reason: 'unreachable' };
 	}
 	let data = null;
@@ -65,6 +75,7 @@ const seatAction = (seatId, action, token) => api(`${BUS_BASE}/seat/${encodeURIC
 // ── state ───────────────────────────────────────────────────────────
 const state = {
 	buses: [],
+	stats: null,
 	caveats: [],
 	blendZats: new Set(),
 	blend: [],
@@ -73,116 +84,240 @@ const state = {
 	disabled: false,
 };
 
-// ── rendering ───────────────────────────────────────────────────────
-function fmtAmount(zec) {
-	return Number(zec).toLocaleString(undefined, { maximumFractionDigits: 8 });
+// ── live clock (UTC) ────────────────────────────────────────────────
+function tickClock() {
+	const d = new Date();
+	const p = (n) => String(n).padStart(2, '0');
+	$('board-clock').textContent = `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())} UTC`;
 }
 
-function busCard(bus) {
+// ── stats strip ─────────────────────────────────────────────────────
+function setStat(id, value) {
+	const node = $(id);
+	const next = String(value);
+	if (node.textContent === next) return;
+	node.textContent = next;
+	node.classList.remove('flap');           // restart the flip animation
+	void node.offsetWidth;                    // force reflow
+	node.classList.add('flap');
+}
+
+function renderStats() {
+	const live = state.buses;
+	const s = state.stats || {};
+	const boarding = s?.buses?.boarding ?? live.filter((b) => b.status === 'boarding').length;
+	const ready = s?.buses?.ready ?? live.filter((b) => b.status === 'ready').length;
+	const seats = s?.seats_total ?? live.reduce((n, b) => n + (b.seats_filled || 0), 0);
+	const routes = new Set(live.map((b) => b.to)).size;
+	setStat('stat-boarding', boarding);
+	setStat('stat-ready', ready);
+	setStat('stat-seats', seats);
+	setStat('stat-routes', routes);
+	setStat('stat-amounts', state.blend.length || HEADLINE_AMOUNTS.length);
+}
+
+// ── ticker ──────────────────────────────────────────────────────────
+function renderTicker() {
+	const parts = [];
+	if (state.buses.length) {
+		for (const b of state.buses.slice(0, 6)) {
+			const tag = b.status === 'ready' ? 'window open' : `${Math.max(0, (b.min_passengers || 0) - (b.seats_filled || 0))} more to fill`;
+			parts.push(`${b.status === 'ready' ? '▶' : '●'} ${fmtAmount(b.amount_zec)} ZEC → ${shortOf(b.to)} · ${b.seats_filled}/${b.min_passengers} · ${tag}`);
+		}
+	} else {
+		parts.push('● Board is clear — start a departure and others will hop on');
+	}
+	const amts = (state.blend.length ? state.blend : HEADLINE_AMOUNTS.map((z) => ({ zec: z }))).slice(0, 9).map((a) => fmtAmount(a.zec)).join(' · ');
+	parts.push(`Blend-in amounts: ${amts} ZEC`);
+	parts.push('Non-custodial — you broadcast your own swap, ZecBus never holds funds or keys');
+	parts.push('Idea + stats from zecstats.com');
+
+	const copy = parts.map((t) => `<span class="seg">${t}</span><span class="sep">✦</span>`).join('');
+	$('ticker-track').innerHTML = copy + copy; // duplicate for a seamless -50% loop
+}
+
+// ── the departures board ────────────────────────────────────────────
+function statusCell(status, detail) {
+	const map = { boarding: 'boarding', ready: 'ready', departed: 'departing', scheduled: 'scheduled' };
+	const cls = map[status] || 'scheduled';
+	const label = status === 'scheduled' ? 'Scheduled' : (STATUS_LABEL[status] || status);
+	const span = el('span', { class: `status status--${cls}`, text: label });
+	if (detail) span.append(el('small', { text: ` ${detail}` }));
+	return span;
+}
+
+function liveRow(bus) {
 	const mine = state.mySeat?.bus?.id === bus.id;
-	const card = el('li', { class: `bus${mine ? ' bus--mine' : ''}` });
-	card.append(
-		el('div', { class: 'bus__top' },
-			el('span', { class: 'bus__route', text: `${bus.from} → ${bus.to}` }),
-			el('span', { class: `pill pill--${bus.status}`, text: STATUS_LABEL[bus.status] || bus.status }),
-		),
-		el('div', { class: 'bus__amount', html: `${fmtAmount(bus.amount_zec)} <small>ZEC</small>` }),
-		el('div', { class: 'bus__seats', html: `<b>${bus.seats_filled}/${bus.min_passengers}</b> seats${bus.seats_departed ? ` · ${bus.seats_departed} away` : ''}` }),
+	const ready = bus.status === 'ready';
+	const tr = el('tr', { class: `is-${ready ? 'ready' : 'live'}` });
+
+	tr.append(
+		el('td', { class: 'c-dest' },
+			el('span', { class: 'dest flap' }, shortOf(bus.to), el('small', { text: `from ${shortOf(bus.from)}` }))),
+		el('td', { class: 'c-amt' },
+			el('span', { class: 'amt flap', html: `${fmtAmount(bus.amount_zec)} <small>ZEC</small>` })),
+		el('td', { class: 'c-seats' },
+			el('span', { class: 'seats', html: `<b>${bus.seats_filled}</b>/${bus.min_passengers}${bus.seats_departed ? ` <small>· ${bus.seats_departed} away</small>` : ''}` })),
+		el('td', { class: 'c-status' },
+			statusCell(bus.status, ready ? 'window open' : `${Math.max(0, (bus.min_passengers || 0) - (bus.seats_filled || 0))} to go`)),
 	);
-	if (bus.privacy?.headline) card.append(el('div', { class: `bus__priv bus__priv--${bus.privacy.level}`, text: bus.privacy.headline }));
-	if (mine) card.append(el('div', { class: 'bus__priv', text: 'This is your bus.' }));
-	else if (bus.status === 'boarding') {
-		card.append(el('button', {
-			class: 'btn btn--primary', text: 'Board this bus',
+
+	const act = el('td', { class: 'c-act' });
+	if (mine) act.append(el('span', { class: 'status--ready status', text: 'Your seat' }));
+	else if (bus.status === 'boarding' || (ready && bus.seats_filled < bus.seats_max)) {
+		act.append(el('button', {
+			class: 'btn btn--board btn--sm', text: 'Board',
 			onclick: () => reserve({ to: bus.to, amount: bus.amount_zec, minPassengers: bus.min_passengers }),
 		}));
 	}
-	return card;
+	tr.append(act);
+	return tr;
+}
+
+function scheduledRow(to, zec) {
+	const tr = el('tr', { class: 'is-sched' });
+	tr.append(
+		el('td', { class: 'c-dest' },
+			el('span', { class: 'dest' }, shortOf(to), el('small', { text: `from ZEC` }))),
+		el('td', { class: 'c-amt' },
+			el('span', { class: 'amt', html: `${fmtAmount(zec)} <small>ZEC</small>` })),
+		el('td', { class: 'c-seats' },
+			el('span', { class: 'seats', html: `<b>0</b>/5 <small>· open</small>` })),
+		el('td', { class: 'c-status' }, statusCell('scheduled', 'be the first')),
+		el('td', { class: 'c-act' },
+			el('button', {
+				class: 'btn btn--sched btn--sm', text: 'Start',
+				onclick: () => prefillJoin(to, zec),
+			})),
+	);
+	return tr;
+}
+
+function scheduledRoutes(slots) {
+	if (slots <= 0) return [];
+	const filter = $('filter-to').value;
+	const dests = filter ? [filter] : SUGGEST_DESTS;
+	const amounts = state.blendZats.size
+		? HEADLINE_AMOUNTS.filter((z) => state.blendZats.has(toZats(z)))
+		: HEADLINE_AMOUNTS;
+	const liveKeys = new Set(state.buses.map((b) => `${b.to}@${toZats(b.amount_zec)}`));
+	const out = [];
+	for (const z of amounts) {
+		for (const d of dests) {
+			if (out.length >= slots) return out;
+			if (liveKeys.has(`${d}@${toZats(z)}`)) continue;
+			out.push({ to: d, zec: z });
+		}
+	}
+	return out;
 }
 
 function renderBoard() {
-	const list = $('bus-list');
-	list.replaceChildren();
-	if (state.disabled) { $('board-status').textContent = 'The bus board is not enabled on the gateway right now.'; return; }
-	if (!state.buses.length) {
-		$('board-status').textContent = 'No buses boarding right now — start one below and others can hop on.';
+	const body = $('board-rows');
+	body.replaceChildren();
+
+	if (state.disabled) {
+		$('board-status').textContent = 'The bus board is not enabled on the gateway right now.';
 		return;
 	}
-	$('board-status').textContent = `${state.buses.length} bus${state.buses.length === 1 ? '' : 'es'} open.`;
-	for (const b of state.buses) list.append(busCard(b));
+
+	const live = [...state.buses].sort((a, b) => {
+		const rank = (x) => (x.status === 'ready' ? 0 : x.status === 'boarding' ? 1 : 2);
+		return rank(a) - rank(b) || (b.seats_filled || 0) - (a.seats_filled || 0);
+	});
+	for (const b of live) body.append(liveRow(b));
+
+	const sched = scheduledRoutes(MAX_BOARD_ROWS - live.length);
+	for (const r of sched) body.append(scheduledRow(r.to, r.zec));
+
+	if (live.length) {
+		$('board-status').textContent = `${live.length} live ${live.length === 1 ? 'departure' : 'departures'} · ${sched.length} scheduled — board any of them.`;
+	} else {
+		$('board-status').textContent = 'No live buses yet — these routes are ready to open. Be the first and others will hop on.';
+	}
 }
 
-function renderCaveats() {
-	const ul = $('caveats-list');
-	ul.replaceChildren();
-	for (const c of state.caveats) ul.append(el('li', { text: c }));
-}
-
+// ── amount chips + form ─────────────────────────────────────────────
 function renderChips() {
 	const ul = $('amount-chips');
 	ul.replaceChildren();
+	const cur = toZats($('join-amount').value);
 	for (const a of state.blend.slice(0, 12)) {
-		const on = Math.round(Number($('join-amount').value) * ZATS) === a.zats;
-		ul.append(el('li', {}, el('button', {
-			class: `chip${on ? ' chip--on' : ''}`, type: 'button',
+		ul.append(el('li', {
+			class: cur === a.zats ? 'is-on' : '',
 			onclick: () => { $('join-amount').value = String(a.zec); onAmountInput(); },
 			html: `${fmtAmount(a.zec)}${a.count ? ` <small>·${a.count}</small>` : ''}`,
-		})));
+		}));
 	}
 }
 
+function prefillJoin(to, zec) {
+	$('join-to').value = to;
+	$('join-amount').value = String(zec);
+	onAmountInput();
+	$('join').scrollIntoView({ behavior: 'smooth', block: 'center' });
+	$('join-go').focus();
+}
+
+// ── your ticket (boarding pass) ─────────────────────────────────────
 function renderSeat() {
 	const card = $('seat-card');
 	const joinCard = $('join-card');
 	if (!state.mySeat?.seat) { card.hidden = true; joinCard.hidden = false; return; }
-	card.hidden = false; joinCard.hidden = true;
+	card.hidden = false; joinCard.hidden = false; // keep "board another" visible too
 
 	const { seat, bus, ownerToken } = state.mySeat;
+	const ready = bus.status === 'ready';
 	const summary = $('seat-summary');
+	const line = (k, v) => el('div', { class: 'seat-line' }, el('span', { text: k }), v?.nodeType ? el('span', {}, v) : el('span', { text: String(v) }));
 	summary.replaceChildren(
-		el('span', { class: 'bus__route', text: `${bus.from} → ${bus.to}` }),
-		el('span', { class: 'bus__amount', html: `${fmtAmount(bus.amount_zec)} <small>ZEC</small>` }),
-		el('span', { class: `pill pill--${bus.status}`, text: STATUS_LABEL[bus.status] || bus.status }),
-		el('span', { class: 'seat-hint', text: `your seat: ${seat.status}` }),
+		line('Route', `${shortOf(bus.from)} → ${shortOf(bus.to)} (${nameOf(bus.to)})`),
+		line('Blend-in amount', `${fmtAmount(bus.amount_zec)} ZEC`),
+		line('Bus', el('span', { class: `seat-badge seat-badge--${ready ? 'ready' : 'boarding'}`, text: STATUS_LABEL[bus.status] || bus.status })),
+		line('Seats', `${bus.seats_filled}/${bus.min_passengers}`),
+		line('Your seat', seat.status),
 	);
-	if (bus.privacy?.headline) summary.append(el('div', { class: `bus__priv bus__priv--${bus.privacy.level}`, text: bus.privacy.headline }));
+	if (bus.privacy?.headline) summary.append(el('p', { class: 'token__note', text: bus.privacy.headline }));
 
-	// One-time token (only when we just received it on join).
 	const tokenBox = $('token-box');
 	if (ownerToken) { tokenBox.hidden = false; $('token-value').value = ownerToken; }
 	else tokenBox.hidden = true;
 
 	const actions = $('seat-actions');
 	actions.replaceChildren();
-	const ready = bus.status === 'ready';
 	if (ready) {
 		actions.append(el('a', {
 			class: 'btn btn--primary', href: 'https://winbit32.com', target: '_blank', rel: 'noopener',
-			text: `Broadcast your ${bus.from.split('.')[0]}→${bus.to.split('.')[0]} swap ▶`,
+			text: `Broadcast your ${shortOf(bus.from)}→${shortOf(bus.to)} swap ▶`,
 		}));
-		actions.append(el('span', { class: 'seat-hint', text: `Swap ${fmtAmount(bus.amount_zec)} ZEC to ${bus.to} now, during the window, to a fresh destination. (One-click broadcast is coming inside WINBIT32.)` }));
 	}
-	if (seat.status === 'reserved') {
-		actions.append(el('button', { class: 'btn', text: 'Confirm boarded', onclick: () => doSeat('board') }));
-	}
-	actions.append(el('button', { class: 'btn btn--leave', text: 'Leave seat', onclick: () => doSeat('leave') }));
+	if (seat.status === 'reserved') actions.append(el('button', { class: 'btn', text: 'Confirm boarded', onclick: () => doSeat('board') }));
+	actions.append(el('button', { class: 'btn btn--ghost', text: 'Leave seat', onclick: () => doSeat('leave') }));
+	if (ready) actions.append(el('p', { class: 'token__note', text: `Swap ${fmtAmount(bus.amount_zec)} ZEC → ${shortOf(bus.to)} during the window, to a fresh destination. One-click broadcast is coming inside WINBIT32.` }));
+}
+
+// ── caveats ─────────────────────────────────────────────────────────
+function renderCaveats() {
+	const ul = $('caveats-list');
+	ul.replaceChildren();
+	for (const c of state.caveats) ul.append(el('li', { text: c }));
 }
 
 // ── actions ─────────────────────────────────────────────────────────
-function setBusy(v) { state.busy = v; $('join-go').disabled = v || !canReserve(); }
-
 function canReserve() {
 	const zec = Number($('join-amount').value);
 	if (!Number.isFinite(zec) || zec <= 0) return false;
-	return state.blendZats.size === 0 ? true : state.blendZats.has(Math.round(zec * ZATS));
+	return state.blendZats.size === 0 ? true : state.blendZats.has(toZats(zec));
 }
+function setBusy(v) { state.busy = v; $('join-go').disabled = v || !canReserve(); }
 
 function onAmountInput() {
 	const zec = Number($('join-amount').value);
 	const hint = $('amount-hint');
-	if (Number.isFinite(zec) && zec > 0 && state.blendZats.size && !state.blendZats.has(Math.round(zec * ZATS))) {
-		hint.textContent = "That isn't a common blend-in amount — pick one below so a bus of identical odd amounts isn't just a shared fingerprint.";
-	} else hint.textContent = '';
+	if (Number.isFinite(zec) && zec > 0 && state.blendZats.size && !state.blendZats.has(toZats(zec))) {
+		hint.className = 'hint hint--warn';
+		hint.textContent = "Not a common blend-in amount — pick one below, or a bus of identical odd amounts is just a shared fingerprint.";
+	} else { hint.className = 'hint'; hint.textContent = ''; }
 	$('join-go').disabled = state.busy || !canReserve();
 	renderChips();
 }
@@ -195,9 +330,12 @@ async function reserve({ to, amount, minPassengers, handle }) {
 		state.mySeat = { seat: res.data.seat, bus: res.data.bus, ownerToken: res.data.owner_token };
 		if (Array.isArray(res.data.caveats)) { state.caveats = res.data.caveats; renderCaveats(); }
 		renderSeat();
+		$('seat-card').scrollIntoView({ behavior: 'smooth', block: 'center' });
 		refresh();
 	} else {
-		$('amount-hint').textContent = res.error?.message || (res.reason === 'disabled' ? 'The bus board is not enabled right now.' : 'Could not reserve a seat — try again.');
+		const hint = $('amount-hint');
+		hint.className = 'hint hint--warn';
+		hint.textContent = res.error?.message || (res.reason === 'disabled' ? 'The bus board is not enabled right now.' : 'Could not reserve a seat — try again.');
 	}
 	setBusy(false);
 }
@@ -219,9 +357,6 @@ async function resumeSeat() {
 	const seatId = $('resume-seat').value.trim();
 	const token = $('resume-token').value.trim();
 	if (!seatId || !token) return;
-	// We don't know the bus id; ask the seat's bus via a probe join? No — use
-	// status: the seat view needs the bus id, so walk the open list to find it,
-	// else accept and let the next poll resolve it once it appears.
 	const lists = await listBuses();
 	let found = null;
 	if (lists.ok) {
@@ -231,20 +366,27 @@ async function resumeSeat() {
 		}
 	}
 	if (found) { state.mySeat = found; renderSeat(); $('resume-box').hidden = true; }
-	else $('amount-hint').textContent = 'Could not find that seat on an open bus (it may have departed or expired).';
+	else {
+		const hint = $('amount-hint');
+		hint.className = 'hint hint--warn';
+		hint.textContent = 'Could not find that seat on an open bus (it may have departed or expired).';
+	}
 }
 
 // ── polling ─────────────────────────────────────────────────────────
 async function refresh() {
 	const to = $('filter-to').value;
 	const res = await listBuses(to);
-	if (res.reason === 'disabled') { state.disabled = true; renderBoard(); return; }
+	if (res.reason === 'disabled') { state.disabled = true; renderBoard(); renderStats(); return; }
 	state.disabled = false;
 	if (res.ok && res.data) {
 		state.buses = Array.isArray(res.data.buses) ? res.data.buses : [];
+		state.stats = res.data.stats || null;
 		if (Array.isArray(res.data.caveats) && res.data.caveats.length) { state.caveats = res.data.caveats; renderCaveats(); }
 	}
 	renderBoard();
+	renderStats();
+	renderTicker();
 
 	const s = state.mySeat;
 	if (s?.seat?.id && s?.bus?.id) {
@@ -259,10 +401,13 @@ async function refresh() {
 async function loadBlend() {
 	const res = await api(POPULAR_URL);
 	if (res.ok && Array.isArray(res.data?.amounts)) {
-		state.blend = res.data.amounts.map((a) => ({ zec: a.zec, zats: a.zats ?? Math.round(a.zec * ZATS), count: a.count }));
+		state.blend = res.data.amounts.map((a) => ({ zec: a.zec, zats: a.zats ?? toZats(a.zec), count: a.count }));
 		state.blendZats = new Set(state.blend.map((a) => a.zats));
 		renderChips();
 		onAmountInput();
+		renderBoard();
+		renderStats();
+		renderTicker();
 	}
 }
 
@@ -271,8 +416,8 @@ function fillAssetSelects() {
 	const filter = $('filter-to');
 	const join = $('join-to');
 	for (const a of EXIT_ASSETS) {
-		filter.append(el('option', { value: a.id, text: a.label }));
-		join.append(el('option', { value: a.id, text: a.label }));
+		filter.append(el('option', { value: a.id, text: `${a.label} (${a.short})` }));
+		join.append(el('option', { value: a.id, text: `${a.label} (${a.short})` }));
 	}
 	join.value = 'BTC.BTC';
 }
@@ -299,6 +444,11 @@ function wireEvents() {
 fillAssetSelects();
 renderMcpConfig();
 wireEvents();
+tickClock();
+setInterval(tickClock, 1000);
+renderBoard();   // render scheduled routes immediately so the board is never blank
+renderStats();
+renderTicker();
 loadBlend();
 refresh();
 setInterval(refresh, POLL_MS);
