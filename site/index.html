@@ -46,15 +46,24 @@
 							<option value="">All destinations</option>
 						</select>
 					</label>
+					<button id="open-board" class="btn btn--primary btn--sm" type="button" title="Start or join a bus">🎟 Board</button>
+					<button id="open-ticket" class="btn btn--sm" type="button" title="Your seat" hidden>Your ticket</button>
 					<button id="refresh" class="btn btn--ghost" title="Refresh now">⟳</button>
 				</div>
 			</div>
 
 			<p class="board-sub">
-				Non-custodial mixing rendezvous. Ride out of the shielded pool alongside others at the
-				<strong>same blend-in amount</strong>, route &amp; short window — so on-chain you're one of many
-				look-alike swaps, not a lone fingerprint. <a href="#how">How it works →</a>
+				Non-custodial mixing rendezvous. Cross a pool boundary alongside others at the
+				<strong>same blend-in amount</strong> &amp; short window — so on-chain you're one of many
+				look-alike moves, not a lone fingerprint. <a href="#how">How it works →</a>
 			</p>
+
+			<div class="modes" id="board-modes" role="tablist" aria-label="Service">
+				<button class="mode is-on" data-mode="" role="tab" type="button">All services</button>
+				<button class="mode" data-mode="swap" role="tab" type="button">Swap out</button>
+				<button class="mode" data-mode="unshield" role="tab" type="button" title="Leave the shielded pool to transparent ZEC (z→t)">Unshield</button>
+				<button class="mode" data-mode="shield" role="tab" type="button" title="Enter the shielded pool from transparent ZEC (t→z)">Shield</button>
+			</div>
 
 			<ul class="stats" id="stats" aria-label="Live station stats">
 				<li class="stat"><span class="stat__num" id="stat-boarding">–</span><span class="stat__lbl">Boarding</span></li>
@@ -89,57 +98,71 @@
 			</div>
 		</section>
 
-		<!-- TICKET OFFICE: start/join + your seat -->
-		<section id="join" class="office">
-			<div class="ticket" id="join-card">
-				<h2>Board a bus</h2>
-				<p class="ticket__lede">Pick where you're headed and a round blend-in amount. You get a one-time seat token — no account, nothing stored about you.</p>
-				<div class="field-row">
-					<label class="field">
-						<span>Exit to</span>
-						<select id="join-to"></select>
-					</label>
-					<label class="field">
-						<span>Min riders</span>
-						<input id="join-min" type="number" min="2" max="50" step="1" value="5" />
-					</label>
-				</div>
-				<label class="field field--amount">
-					<span>Blend-in amount (ZEC)</span>
-					<input id="join-amount" type="number" inputmode="decimal" min="0" step="0.0001" placeholder="e.g. 1" />
-				</label>
-				<p id="amount-hint" class="hint"></p>
-				<ul id="amount-chips" class="chips"></ul>
-				<label class="field">
-					<span>Handle (optional)</span>
-					<input id="join-handle" type="text" maxlength="48" placeholder="anon" autocomplete="off" />
-				</label>
-				<button id="join-go" class="btn btn--primary" disabled>Reserve a seat</button>
-				<p class="ticket__detail">
-					Have a seat token from before?
-					<button id="resume-toggle" class="linklike" type="button">Resume a seat</button>
-				</p>
-				<div id="resume-box" class="resume-box" hidden>
-					<input id="resume-seat" type="text" placeholder="seat id (seat_…)" autocomplete="off" />
-					<input id="resume-token" type="text" placeholder="seat token" autocomplete="off" />
-					<button id="resume-go" class="btn btn--ghost" type="button">Re-attach</button>
-				</div>
-			</div>
-
-			<div class="boarding-pass" id="seat-card" hidden>
-				<h2>Your ticket</h2>
-				<div id="seat-summary"></div>
-				<div class="token" id="token-box" hidden>
-					<label for="token-value">Seat token — save it to manage this seat after you reload</label>
-					<div class="token__row">
-						<input id="token-value" type="text" readonly />
-						<button id="token-copy" class="btn btn--ghost" type="button">Copy</button>
+		<!-- TICKET OFFICE: opens as a modal over the board (shareable via URL) -->
+		<dialog id="board-modal" class="modal" aria-labelledby="modal-title">
+			<button id="modal-close" class="modal__close" type="button" aria-label="Close">✕</button>
+			<div class="modal__body">
+				<div class="ticket" id="join-card">
+					<h2 id="modal-title">Board a bus</h2>
+					<p class="ticket__lede">Pick what you're doing and a round blend-in amount. You get a one-time seat token — no account, nothing stored about you.</p>
+					<div id="modal-bus" class="modal-bus" hidden></div>
+					<div class="modes modes--join" id="join-modes" role="tablist" aria-label="What are you doing?">
+						<button class="mode is-on" data-mode="swap" role="tab" type="button">Swap out</button>
+						<button class="mode" data-mode="unshield" role="tab" type="button" title="Shielded → transparent ZEC">Unshield</button>
+						<button class="mode" data-mode="shield" role="tab" type="button" title="Transparent → shielded ZEC">Shield</button>
 					</div>
-					<p class="token__note">Shown once. ZecBus does not store it — keep it yourself only if you want to come back.</p>
+					<p id="join-mode-note" class="ticket__detail"></p>
+					<div class="field-row">
+						<label class="field" id="join-to-field">
+							<span>Exit to</span>
+							<select id="join-to"></select>
+						</label>
+						<label class="field">
+							<span>Min riders</span>
+							<input id="join-min" type="number" min="2" max="50" step="1" value="5" />
+						</label>
+					</div>
+					<label class="field field--amount">
+						<span>Blend-in amount (ZEC)</span>
+						<input id="join-amount" type="number" inputmode="decimal" min="0" step="0.0001" placeholder="e.g. 1" />
+					</label>
+					<p id="amount-hint" class="hint"></p>
+					<ul id="amount-chips" class="chips"></ul>
+					<label class="field">
+						<span>Handle (optional)</span>
+						<input id="join-handle" type="text" maxlength="48" placeholder="anon" autocomplete="off" />
+					</label>
+					<button id="join-go" class="btn btn--primary" disabled>Reserve a seat</button>
+					<div class="ticket__share">
+						<button id="share-link" class="linklike" type="button">🔗 Copy share link</button>
+						<span id="share-status" class="share-status" role="status"></span>
+					</div>
+					<p class="ticket__detail">
+						Have a seat token from before?
+						<button id="resume-toggle" class="linklike" type="button">Resume a seat</button>
+					</p>
+					<div id="resume-box" class="resume-box" hidden>
+						<input id="resume-seat" type="text" placeholder="seat id (seat_…)" autocomplete="off" />
+						<input id="resume-token" type="text" placeholder="seat token" autocomplete="off" />
+						<button id="resume-go" class="btn btn--ghost" type="button">Re-attach</button>
+					</div>
 				</div>
-				<div id="seat-actions" class="seat-actions"></div>
+
+				<div class="boarding-pass" id="seat-card" hidden>
+					<h2>Your ticket</h2>
+					<div id="seat-summary"></div>
+					<div class="token" id="token-box" hidden>
+						<label for="token-value">Seat token — save it to manage this seat after you reload</label>
+						<div class="token__row">
+							<input id="token-value" type="text" readonly />
+							<button id="token-copy" class="btn btn--ghost" type="button">Copy</button>
+						</div>
+						<p class="token__note">Shown once. ZecBus does not store it — keep it yourself only if you want to come back.</p>
+					</div>
+					<div id="seat-actions" class="seat-actions"></div>
+				</div>
 			</div>
-		</section>
+		</dialog>
 
 		<!-- WHY (zecstats linkback) -->
 		<section id="why" class="why">
@@ -174,8 +197,8 @@
 			<ol class="steps">
 				<li>
 					<span class="steps__n">1</span>
-					<h3>Pick a blend-in amount</h3>
-					<p>Choose a common denomination others also use, and where you want to exit to (BTC, ETH, RUNE…). Odd amounts fingerprint you — ride a round one.</p>
+					<h3>Pick a service &amp; blend-in amount</h3>
+					<p>Choose <strong>swap out</strong> (ZEC→BTC, ETH, RUNE…), <strong>unshield</strong> (z→t) or <strong>shield</strong> (t→z), plus a common denomination others also use. Odd amounts fingerprint you — ride a round one.</p>
 				</li>
 				<li>
 					<span class="steps__n">2</span>
@@ -189,10 +212,17 @@
 				</li>
 				<li>
 					<span class="steps__n">4</span>
-					<h3>Broadcast your own swap</h3>
-					<p>During the window, everyone broadcasts their <em>own</em> ZEC→asset swap from their <em>own</em> wallet, to a <em>fresh</em> destination. N identical swaps land together — one anonymity set.</p>
+					<h3>Broadcast your own move</h3>
+					<p>During the window, everyone broadcasts their <em>own</em> swap, unshield or shield from their <em>own</em> wallet, to a <em>fresh</em> destination. N identical moves land together — one anonymity set.</p>
 				</li>
 			</ol>
+			<p class="how__more">
+				No funds, keys or destinations ever touch ZecBus — it only matches amount, route and timing, and you
+				broadcast your own move. For the full design — including the anonymous
+				<a href="https://github.com/Rotwang9000/zecbus#sybil-resistance-p4c" rel="noopener">anti-sybil proofs</a>
+				that stop one actor hogging a bus —
+				<a href="https://github.com/Rotwang9000/zecbus#readme" rel="noopener">read the write-up on GitHub ↗</a>.
+			</p>
 		</section>
 
 		<!-- AGENTS -->
@@ -211,8 +241,16 @@
 				<li><code>winbit32_zec_bus_leave</code> — withdraw your seat</li>
 			</ul>
 			<p class="mcp__example">
-				e.g. <code>zec_bus_join({ to: "BTC.BTC", amount: 1, minPassengers: 5 })</code>. Same free REST surface:
-				<code>GET /v1/zec/bus</code>.
+				e.g. <code>zec_bus_join({ to: "BTC.BTC", amount: 1, minPassengers: 5 })</code> to swap out, or
+				<code>zec_bus_join({ kind: "unshield", amount: 1 })</code> to deshield with a crowd. Same free REST
+				surface: <code>GET /v1/zec/bus?kind=unshield</code>.
+			</p>
+			<p class="mcp__example">
+				Agents can auto-discover ZecBus via its
+				<a href="/.well-known/agent.gopher" rel="noopener">Gopher-over-HTTPS card</a>
+				(<code>/.well-known/agent.gopher</code>), which cross-links the
+				<a href="https://winbit32.com" rel="noopener">WINBIT32</a> wallet and sister projects like
+				<a href="https://secresea.com" rel="noopener">Secresea</a>, the privacy NFT marketplace.
 			</p>
 		</section>
 
@@ -224,10 +262,19 @@
 				and Money Manager. There the bus is wallet-connected: when your bus is ready, one click prefills the
 				built-in Exchange to broadcast your own ZEC exit swap — no copy-pasting amounts, no leaving the app.
 			</p>
+			<p>
+				You don't have to wait: when a bus is ready, your ticket has an <strong>optional</strong>
+				“do it in your browser” button that opens WINBIT32 prefilled, so you can connect your own wallet and
+				broadcast right there (a small affiliate fee applies to swaps). It's entirely optional —
+				<strong>broadcasting from your own wallet stays the default</strong>, and ZecBus never holds funds or keys either way.
+			</p>
 			<p class="soon__next">
-				<strong>In progress:</strong> anonymous sybil-resistance — a Semaphore-style
-				<a href="https://github.com/Rotwang9000/zecbus#sybil-resistance-p4c-in-progress" rel="noopener">membership / nullifier circuit</a>
-				so one actor can't quietly take most seats on a bus and shrink everyone's set.
+				<strong>Anonymous sybil-resistance is built.</strong> A Semaphore-style membership / nullifier proof —
+				a scarce per-wallet identity, in-browser proving, and an opt-in coordinator gate that reveals only a
+				per-bus nullifier — stops one actor quietly taking most seats and shrinking everyone's set, without
+				deanonymising anyone or holding keys. It switches on once a multi-party trusted-setup ceremony has run;
+				until then the board stays open and anonymous.
+				<a href="https://github.com/Rotwang9000/zecbus#sybil-resistance-p4c" rel="noopener">How the proofs work ↗</a>
 			</p>
 		</section>
 	</main>
@@ -237,6 +284,7 @@
 			<strong>ZecBus</strong> · non-custodial mixing rendezvous ·
 			<a href="https://github.com/Rotwang9000/zecbus" rel="noopener">source &amp; docs</a> ·
 			<a href="https://winbit32.com" rel="noopener">WINBIT32</a> ·
+			<a href="https://secresea.com" rel="noopener" title="Privacy NFT marketplace (Zcash shielded)">Secresea</a> ·
 			data &amp; inspiration from <a href="https://zecstats.com" rel="noopener">zecstats.com</a>
 		</p>
 		<p class="site-footer__fine">

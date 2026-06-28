@@ -33,6 +33,10 @@
 
 * { box-sizing: border-box; }
 
+/* the `hidden` attribute must win over class display rules (.field/.resume-box/
+   .modal-bus all set display, which would otherwise override the UA default) */
+[hidden] { display: none !important; }
+
 html { scroll-behavior: smooth; }
 
 body {
@@ -213,6 +217,21 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 12px 20px 72px; }
 .lg--ready { color: var(--ready); }
 .lg--scheduled { color: var(--muted-2); }
 
+/* ---------- service mode tabs (swap / unshield / shield) ---------- */
+.modes { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
+.mode {
+	font: inherit; font-family: var(--mono); font-size: .8rem; cursor: pointer;
+	color: var(--muted); background: #060708; border: 1px solid var(--line);
+	border-radius: 999px; padding: 6px 13px; letter-spacing: .04em;
+	transition: color .15s ease, border-color .15s ease, background .15s ease;
+}
+.mode:hover { color: var(--text); border-color: var(--cyan-dim); }
+.mode.is-on { color: var(--void); background: var(--amber); border-color: var(--amber); font-weight: 700; }
+.modes--join { margin: 6px 0 12px; }
+.board-head__filter.is-off { opacity: .4; }
+/* pool-move rows read in cyan to set them apart from swap-outs */
+.solari tbody tr.kind-unshield .flap, .solari tbody tr.kind-shield .flap { color: var(--cyan); text-shadow: 0 0 10px rgba(52,211,194,.22); }
+
 /* ---------- buttons ---------- */
 .btn {
 	font: inherit; cursor: pointer; border-radius: 8px; padding: 9px 15px;
@@ -232,11 +251,7 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 12px 20px 72px; }
 .btn--sched:hover { border-color: var(--cyan-dim); color: var(--cyan); }
 .linklike { background: none; border: none; color: var(--cyan); cursor: pointer; padding: 0; font: inherit; text-decoration: underline; }
 
-/* ---------- ticket office ---------- */
-.office {
-	margin-top: 22px;
-	display: grid; grid-template-columns: 1.1fr .9fr; gap: 18px; align-items: start;
-}
+/* ---------- ticket office (rendered inside the board-a-bus modal) ---------- */
 .ticket, .boarding-pass {
 	background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
 	padding: 20px clamp(14px, 2.5vw, 22px);
@@ -288,6 +303,62 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 12px 20px 72px; }
 .token__note { font-size: .74rem; color: var(--muted-2); margin: 8px 0 0; }
 .seat-actions { display: flex; gap: 9px; flex-wrap: wrap; margin-top: 14px; }
 
+/* ---------- board-a-bus modal ---------- */
+.modal {
+	width: min(560px, calc(100vw - 28px));
+	max-height: calc(100vh - 40px);
+	overflow: auto;
+	margin: auto;            /* centre in the viewport */
+	padding: 0;
+	border: 1px solid var(--line);
+	border-radius: var(--radius);
+	background: linear-gradient(180deg, var(--panel-2), var(--panel));
+	color: var(--text);
+	box-shadow: 0 40px 120px -30px rgba(0,0,0,.95), 0 0 0 1px rgba(255,176,0,.06);
+}
+.modal::backdrop {
+	background: rgba(4, 5, 8, .62);
+	backdrop-filter: blur(7px);
+	-webkit-backdrop-filter: blur(7px);
+}
+.modal[open] { animation: modal-in .22s cubic-bezier(.2,.8,.2,1) both; }
+.modal[open]::backdrop { animation: backdrop-in .22s ease both; }
+@keyframes modal-in { from { opacity: 0; transform: translateY(10px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes backdrop-in { from { opacity: 0; } to { opacity: 1; } }
+.modal__body { padding: clamp(16px, 3vw, 26px); }
+.modal__body .ticket,
+.modal__body .boarding-pass { border: 0; padding: 0; background: transparent; }
+.modal__body .boarding-pass { margin-top: 22px; padding-top: 20px; border-top: 1px dashed var(--line); }
+.modal__body .boarding-pass::before,
+.modal__body .boarding-pass::after { display: none; } /* no ticket notches inside the modal */
+.modal__close {
+	position: sticky; top: 10px; float: right; margin: 10px 10px -10px 0; z-index: 2;
+	width: 32px; height: 32px; line-height: 1; cursor: pointer;
+	border-radius: 8px; border: 1px solid var(--line); background: #11141a; color: var(--muted);
+	font-size: 1rem;
+}
+.modal__close:hover { color: #fff; border-color: var(--cyan-dim); }
+
+.modal-bus {
+	display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px;
+	background: #0a0c10; border: 1px solid var(--line); border-left: 3px solid var(--amber);
+	border-radius: 9px; padding: 10px 13px; margin: 0 0 14px; font-family: var(--mono); font-size: .85rem;
+}
+.modal-bus.kind-unshield, .modal-bus.kind-shield { border-left-color: var(--cyan); }
+.modal-bus__route { color: var(--text); }
+.modal-bus__amt { color: var(--amber-soft); }
+.modal-bus__seats { color: var(--muted); }
+
+.ticket__share { display: flex; align-items: center; gap: 10px; margin: 12px 0 4px; flex-wrap: wrap; }
+.share-status { font-size: .78rem; color: var(--ready); }
+
+/* optional in-browser hand-off (own wallet stays the default/recommended) */
+.wallet-opt { width: 100%; margin-top: 6px; padding: 12px 13px; background: #0a0c10; border: 1px dashed var(--line); border-radius: 9px; }
+.wallet-opt__title { font-size: .72rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted-2); margin: 0 0 8px; }
+.wallet-opt__note { font-size: .76rem; color: var(--muted-2); margin: 8px 0 0; }
+.seat-move { font-size: .9rem; color: var(--text); margin: 0 0 4px; }
+.seat-move strong { color: var(--amber-soft); }
+
 /* ---------- content sections ---------- */
 .why, .how, .mcp, .soon { margin-top: 34px; }
 .why p { color: var(--muted); max-width: 76ch; }
@@ -310,6 +381,7 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 12px 20px 72px; }
 }
 .steps h3 { font-size: 1.02rem; }
 .steps p { color: var(--muted); font-size: .9rem; margin: 0; }
+.how__more { color: var(--muted); max-width: 76ch; margin: 18px 0 0; font-size: .92rem; }
 
 .mcp p, .soon p { color: var(--muted); max-width: 76ch; }
 .code { background: #060708; border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; overflow-x: auto; font-family: var(--mono); font-size: .82rem; color: var(--amber-soft); }
@@ -324,7 +396,6 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 12px 20px 72px; }
 
 /* ---------- responsive ---------- */
 @media (max-width: 860px) {
-	.office { grid-template-columns: 1fr; }
 	.stats { grid-template-columns: repeat(3, 1fr); }
 	.stat:nth-child(4), .stat:nth-child(5) { grid-column: span 1; }
 }
