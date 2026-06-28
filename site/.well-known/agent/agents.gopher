@@ -1,0 +1,5 @@
+ZecBus — for agents
+===================
+The site drives the winbit32 gateway: REST/MCP under https://mcp.winbit32.com
+(/v1/zec/bus). Find the next departure, then board it with a shielded deposit;
+the gateway serves CORS so a browser-side agent can drive it.

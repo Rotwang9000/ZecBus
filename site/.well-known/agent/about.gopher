@@ -1,0 +1,6 @@
+ZecBus — what this is
+=====================
+A non-custodial Zcash mixing service built around "departures": you board a
+shared, scheduled shielded send alongside other participants, improving privacy
+without ever handing over custody. The site is static and talks to the winbit32
+gateway (mcp.winbit32.com) directly from your browser.
