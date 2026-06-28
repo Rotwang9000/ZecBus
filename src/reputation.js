@@ -21,7 +21,7 @@
 // and path convention) is mirrored 1:1 by `circuits/reputation.circom`, so this
 // model is both the spec and the witness builder for the zk prover.
 
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 
 // BN254 / alt_bn128 scalar field — the field circom + snarkjs (groth16) work in.
 export const FIELD_PRIME =
@@ -87,13 +87,55 @@ export async function nullifierFor(idSecret, busKey) {
 	return poseidonHash([toField(idSecret), toField(busKey)]);
 }
 
+// ── registration anchor: where sybil COST lives ──────────────────────
+// A random identity is free to mint, so a random tree would offer no sybil
+// resistance — the anonymity set is only as honest as the cost of a new leaf.
+// We therefore derive the identity *deterministically* from an `anchor`: a
+// secret the rider already controls that is costly/scarce to mint en masse —
+// canonically a Zcash spending or full viewing key (one per funded wallet), but
+// the same construction works for any scarce secret (a paid attestation, a
+// PoW preimage, a hardware-key signature…). Properties:
+//   • deterministic — the same anchor reproduces the same identity, so a rider
+//     can re-derive (and re-prove) after a reload WITHOUT ever storing idSecret;
+//   • domain-separated — the anchor is never usable as a spend key here, and
+//     `context` lets one anchor yield independent identities per app/epoch;
+//   • one-way — HMAC-SHA512 over the anchor; the commitment/nullifier never
+//     leak the anchor.
+// The TREE OPERATOR still decides which commitments to admit (e.g. "prove this
+// anchor is a UFVK that controls ≥ X confirmed ZEC"); that admission policy is
+// the actual sybil price. This function only makes the identity reproducible
+// and bound to the anchor.
+export const ANCHOR_DOMAIN = 'zecbus:v2:identity';
+
+function hmacField(anchorKey, label) {
+	const mac = createHmac('sha512', Buffer.from(String(anchorKey), 'utf8'))
+		.update(`${ANCHOR_DOMAIN}|${label}`, 'utf8')
+		.digest('hex');
+	return BigInt('0x' + mac) % FIELD_PRIME;
+}
+
+export async function deriveIdentityFromAnchor({ anchor, context = 'default' } = {}) {
+	if (anchor == null || String(anchor).length === 0) {
+		throw new TypeError('deriveIdentityFromAnchor: an `anchor` secret is required');
+	}
+	const ctx = String(context);
+	const idSecret = hmacField(anchor, `secret|${ctx}`);
+	const idSalt = hmacField(anchor, `salt|${ctx}`);
+	const idCommitment = await poseidonHash([idSecret, idSalt]);
+	return { idSecret, idSalt, idCommitment };
+}
+
 // ── busKey: public, deterministic per-bus label ──────────────────────
 // Both the rider and the coordinator must compute the identical value. We hash
 // the immutable, public facts of a bus (never anything secret) into the field.
 export function canonicalBusDescriptor(bus) {
-	const from = String(bus.from ?? 'ZEC.ZEC');
-	const to = String(bus.to);
-	const amountZats = String(bus.amountZats ?? bus.amount_zats ?? bus.amount);
+	// Accept either the crypto-core shape ({from,to,amountZats,id}) or a gateway
+	// bus summary verbatim ({from_asset,to_asset,amount_zat,id}) so a rider can
+	// feed the JSON they got from /v1/zec/bus straight in — the string MUST stay
+	// byte-identical to the gateway's busKeyForBus() (see payments-gateway).
+	const from = String(bus.from ?? bus.from_asset ?? 'ZEC.ZEC');
+	const to = String(bus.to ?? bus.to_asset ?? '');
+	const amountZats = String(bus.amountZats ?? bus.amount_zats ?? bus.amount_zat ?? bus.amount);
 	const id = String(bus.id);
 	if (!to || !id || amountZats === 'undefined') {
 		throw new TypeError('canonicalBusDescriptor: bus needs { to, amountZats, id }');

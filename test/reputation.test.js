@@ -12,6 +12,7 @@ import {
 	FIELD_PRIME,
 	toField,
 	deriveIdentity,
+	deriveIdentityFromAnchor,
 	nullifierFor,
 	busKeyFor,
 	canonicalBusDescriptor,
@@ -58,6 +59,28 @@ test('random identities differ', async () => {
 	assert.notEqual(a.idCommitment, b.idCommitment);
 });
 
+test('anchor-derived identity is reproducible, anchor- and context-bound', async () => {
+	const ANCHOR = 'uview1exampleanchorsecret...';
+	const a = await deriveIdentityFromAnchor({ anchor: ANCHOR });
+	const a2 = await deriveIdentityFromAnchor({ anchor: ANCHOR });
+	const other = await deriveIdentityFromAnchor({ anchor: 'uview1differentkey...' });
+	const ctx = await deriveIdentityFromAnchor({ anchor: ANCHOR, context: 'epoch-2' });
+
+	// same anchor + context ⇒ identical identity (re-derivable after a reload)
+	assert.equal(a.idSecret, a2.idSecret);
+	assert.equal(a.idCommitment, a2.idCommitment);
+	// in-field
+	assert.ok(a.idSecret > 0n && a.idSecret < FIELD_PRIME);
+	assert.ok(a.idSalt > 0n && a.idSalt < FIELD_PRIME);
+	// secret never equals the salt (distinct HMAC labels)
+	assert.notEqual(a.idSecret, a.idSalt);
+	// different anchor / different context ⇒ different identity
+	assert.notEqual(a.idCommitment, other.idCommitment);
+	assert.notEqual(a.idCommitment, ctx.idCommitment);
+	// an empty anchor is refused (no free identities)
+	await assert.rejects(() => deriveIdentityFromAnchor({ anchor: '' }), /anchor.*required/);
+});
+
 test('nullifier: deterministic, unlinkable across buses, distinct per identity', async () => {
 	const id1 = await deriveIdentity({ secret: 111n, salt: 9n });
 	const id2 = await deriveIdentity({ secret: 222n, salt: 9n });
@@ -79,6 +102,18 @@ test('busKey is deterministic and per-bus', () => {
 	assert.notEqual(busKeyFor(BUS_A), busKeyFor(BUS_B));
 	assert.match(canonicalBusDescriptor(BUS_A), /^zecbus:v2:ZEC\.ZEC\|BTC\.BTC\|100000000\|bus_aaa$/);
 	assert.throws(() => canonicalBusDescriptor({ to: 'BTC.BTC' }), /needs/);
+});
+
+test('busKey contract is pinned + accepts a gateway bus summary verbatim', () => {
+	// MUST equal payments-gateway busKeyForBus() for the same bus, or a rider's
+	// proof (built from the JSON they read off /v1/zec/bus) binds to a different
+	// key than the coordinator dedupes on. Mirror of the vector in that repo's
+	// test/zcash-bus-sybil.test.js — change both or neither.
+	const VEC = { from: 'ZEC.ZEC', to: 'BTC.BTC', amountZats: '100000000', id: 'bus_test' };
+	const EXPECT = 9960434065771620257691917133158939830803970344291143990915686779283816674916n;
+	assert.equal(busKeyFor(VEC), EXPECT);
+	// the gateway summary shape (from_asset/to_asset/amount_zat) round-trips too
+	assert.equal(busKeyFor({ from_asset: 'ZEC.ZEC', to_asset: 'BTC.BTC', amount_zat: 100000000, id: 'bus_test' }), EXPECT);
 });
 
 test('Merkle membership verifies for every leaf and fails on tampering', async () => {

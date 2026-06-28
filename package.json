@@ -8,12 +8,13 @@
     "type": "git",
     "url": "https://github.com/Rotwang9000/zecbus.git"
   },
-  "exports": {
-    "./reputation": "./src/reputation.js",
-    "./nullifier-registry": "./src/nullifier-registry.js",
-    "./proof": "./src/client/proof.js",
-    "./verify": "./src/client/verify.js"
-  },
+	"exports": {
+		"./reputation": "./src/reputation.js",
+		"./nullifier-registry": "./src/nullifier-registry.js",
+		"./proof": "./src/client/proof.js",
+		"./verify": "./src/client/verify.js",
+		"./browser": "./src/client/browser.js"
+	},
   "scripts": {
     "test": "node --test",
     "build:circuit": "bash circuits/build.sh"
