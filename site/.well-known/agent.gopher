@@ -3,12 +3,12 @@ iAgent/MCP discovery card (Gopher-over-HTTPS). Type 1 = drill in, 0 = read, h = 
 i	
 0About — what this is (read here, no web tab)	/.well-known/agent/about.gopher
 0Agents — how agents/LLMs use it (llms.txt)	/.well-known/agent/agents.gopher
-1Actions — things you can do here	/.well-known/agent/actions.gopher
 i	
-hZecBus site	URL:https://zecbus.com
+iLinks — site, app, MCP & source (these open a browser tab):	
+hZecBus app — find & board the next departure	URL:https://zecbus.com
 hGateway (winbit32) MCP	URL:https://mcp.winbit32.com/mcp
 i	
-iSister projects (same author):	
+iOther sites in this ecosystem (drill in):	
 hSeneschal — Monero/Zcash payment webhooks + Ethereum builder/DeFi data	URL:https://seneschal.space/.well-known/agent.gopher
 hwinbit32 — Non-custodial multi-chain wallet (a desktop in your browser): Z…	URL:https://winbit32.com/.well-known/agent.gopher
 hsecresea — Privacy NFT marketplace — NFTs (NFPTs) minted on Zcash, with fu…	URL:https://secresea.com/.well-known/agent.gopher
